@@ -1,33 +1,79 @@
-function Module( config , done ) {
-
-    this.$name = config.name || 'root'
-    this.$methods = config.methods
-    this.$options = config
-    this.$modules = []
-
-    const register = async() => {
-
-        if ( Module.$plugins ) {
-            for( let $plugin of Module.$plugins ) {
-                await $plugin.$mount.call( this )
-            }
-        }
+class Module {
     
+    constructor( config , done ) {
+
+        this.$name = config.name || 'root'
+        this.$methods = config.methods
+        this.$options = config
+        this.$modules = []
+
+        
     }
 
-    register().then( i => {
+    async init() {
 
-        if( config.modules ) {
-            for( const _module of config.modules ) {
+    
+        if( this.$options.modules ) {
+            for( const _module of this.$options.modules ) {
                 if( !(_module instanceof Module ) ) {
-                    this.$modules.push( new Module( _module ) )
+                    const $module = new Module( _module )
+                    this.$modules.push( await $module.init() )
                 }
             }
         }
 
-        done && done.call && done()
+        for( let $plugin of Module.$plugins ) {
+            await $plugin.mount.call( this )
+        }
 
-    })
+        return this
+
+    }
+
+
+    async dispatch( action ) {
+
+        const response = []
+
+        action.context = {
+            ...action,
+            name: this.$name,
+            $module: this
+        }
+
+        if( action.module === this.$name || !action.module ) {
+            response.push( await this.$methods[ action.action ].call( this, action.data , action.context) )
+        }
+        
+        for( const _module of this.$modules ) {
+            response.push( ...(await _module.dispatch( action ) ) )   
+        }
+
+        return response
+    }
+
+    getModule( name, ctx ) {
+
+        if( ctx === undefined || ctx === null ) {
+            return
+        }
+    
+        if( ctx.name === name ) {
+            return ctx.$module
+        } 
+    
+        if( ctx.$module.$modules ) {
+            for( const $module of ctx.$module.$modules ) {
+                if( $module.$name === name ) {
+                    return $module
+                }
+            }
+        }
+    
+        return this.getModule( name, ctx.context )
+        
+    }
+
 
     // Return an promise to each module
 
@@ -35,56 +81,13 @@ function Module( config , done ) {
 
 Module.$plugins = []
 
-Module.prototype.getModule = function( name, ctx ) {
-
-    if( ctx === undefined || ctx === null ) {
-        return
-    }
-
-    if( ctx.name === name ) {
-        return ctx.$module
-    } 
-
-    if( ctx.$module.$modules ) {
-        for( const $module of ctx.$module.$modules ) {
-            if( $module.$name === name ) {
-                return $module
-            }
-        }
-    }
-
-    return this.getModule( name, ctx.context )
-    
-}
-
-Module.prototype.dispatch = async function( action ) {
-
-    const response = []
-
-    action.context = {
-        ...action,
-        name: this.$name,
-        $module: this
-    }
-
-    if( action.module === this.$name || !action.module ) {
-        response.push( await this.$methods[ action.action ].call( this, action.data , action.context) )
-    }
-    
-    for( const _module of this.$modules ) {
-        response.push( ...(await _module.dispatch( action ) ) )   
-    }
-
-    return response
-}
-
 Module.use = function( fn ) {
 
     const $plugin = fn()
     
     Module.$plugins.push( $plugin )
 
-    $plugin.$extend( Module )
+    $plugin.install( Module )
 
 }
 
