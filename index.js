@@ -1,23 +1,35 @@
-function Module( config ) {
+function Module( config , done ) {
 
     this.$name = config.name || 'root'
     this.$methods = config.methods
     this.$options = config
     this.$modules = []
 
-    if( config.modules ) {
-        for( const _module of config.modules ) {
-            if( !(_module instanceof Module ) ) {
-                this.$modules.push( new Module( _module ) )
+    const register = async() => {
+
+        if ( Module.$plugins ) {
+            for( let $plugin of Module.$plugins ) {
+                await $plugin.$mount.call( this )
             }
         }
+    
     }
 
-    if ( Module.$plugins ) {
-        for( let $plugin of Module.$plugins ) {
-            $plugin.$mount.call( this )
+    register().then( i => {
+
+        if( config.modules ) {
+            for( const _module of config.modules ) {
+                if( !(_module instanceof Module ) ) {
+                    this.$modules.push( new Module( _module ) )
+                }
+            }
         }
-    }
+
+        done && done.call && done()
+
+    })
+
+    // Return an promise to each module
 
 }
 
