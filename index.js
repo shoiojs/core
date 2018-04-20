@@ -2,17 +2,20 @@ class Module {
     
     constructor( config , done ) {
 
+
         this.$name = config.name || 'root'
         this.$methods = config.methods
         this.$options = config
         this.$modules = []
-
         
+        this.prepare.call( this )
     }
+
 
     async init() {
 
-    
+        await this.beforeMount()
+
         if( this.$options.modules ) {
             for( const _module of this.$options.modules ) {
                 if( !(_module instanceof Module ) ) {
@@ -22,9 +25,7 @@ class Module {
             }
         }
 
-        for( let $plugin of Module.$plugins ) {
-            await $plugin.mount.call( this )
-        }
+        await this.mounted()
 
         return this
 
@@ -74,6 +75,39 @@ class Module {
         
     }
 
+    async eachPlugin(fn) {
+        for( let $plugin of Module.$plugins ) {
+            await fn( $plugin )
+        }
+    }
+
+    prepare( ...args ) {
+        return this.eachPlugin( ($plugin) => {
+            if( !$plugin.prepare || !$plugin.prepare.call ) {
+                return;
+            }
+            return $plugin.prepare.call( this, ...args )
+        } )
+    }
+
+    beforeMount() {
+        return this.eachPlugin( ($plugin) => {
+            $plugin.beforeMount = $plugin.mount || $plugin.beforeMount
+            if( !$plugin.beforeMount || !$plugin.beforeMount.call ) {
+                return;
+            }
+            return $plugin.beforeMount.call( this )
+        } )
+    }
+
+    mounted() {
+        return this.eachPlugin( ($plugin) => {
+            if( !$plugin.mounted || !$plugin.mounted.call ) {
+                return;
+            }
+            return $plugin.mounted.call( this )
+        } )
+    }
 
     // Return an promise to each module
 
