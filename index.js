@@ -42,6 +42,8 @@ class Module {
             $module: this
         }
 
+        await this.beforeAction( action )
+
         if( action.module === this.$name || !action.module ) {
             response.push( await this.$methods[ action.action ].call( this, action.data , action.context) )
         }
@@ -53,7 +55,7 @@ class Module {
         return response
     }
 
-    getModule( name, ctx ) {
+    getModule( name, ctx, searchInParents ) {
 
         if( ctx === undefined || ctx === null ) {
             return
@@ -71,7 +73,11 @@ class Module {
             }
         }
     
-        return this.getModule( name, ctx.context )
+        if( searchInParents === false ) {
+            return
+        }
+
+        return this.getModule( name, ctx.context, searchInParents )
         
     }
 
@@ -90,22 +96,30 @@ class Module {
         } )
     }
 
-    beforeMount() {
+    async beforeAction( ...args ) {
+        if( this.$options.beforeAction && this.$options.beforeAction.call ) {
+            return await this.$options.beforeAction.call( this, ...args )
+        }
+
+        return;
+    }
+
+    beforeMount( ...args ) {
         return this.eachPlugin( ($plugin) => {
             $plugin.beforeMount = $plugin.mount || $plugin.beforeMount
             if( !$plugin.beforeMount || !$plugin.beforeMount.call ) {
                 return;
             }
-            return $plugin.beforeMount.call( this )
+            return $plugin.beforeMount.call( this, ...args )
         } )
     }
 
-    mounted() {
+    mounted( ...args ) {
         return this.eachPlugin( ($plugin) => {
             if( !$plugin.mounted || !$plugin.mounted.call ) {
                 return;
             }
-            return $plugin.mounted.call( this )
+            return $plugin.mounted.call( this, ...args )
         } )
     }
 
@@ -117,9 +131,13 @@ Module.$plugins = []
 
 Module.use = function( fn ) {
 
-    const $plugin = fn()
+    const $plugin = fn( Module )
     
     Module.$plugins.push( $plugin )
+
+    if( !$plugin.install || !$plugin.install.call ) {
+        return
+    }
 
     $plugin.install( Module )
 
