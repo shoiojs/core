@@ -1,3 +1,6 @@
+const _ = require('underscore')
+
+
 class Module {
     
     constructor( config , done ) {
@@ -7,18 +10,20 @@ class Module {
         this.$methods = config.methods
         this.$options = config
         this.$modules = []
-        
+        this.$parent = config.$parent
+
         this.prepare.call( this )
     }
 
 
-    async init() {
+    async init(  ) {
 
         await this.beforeMount()
 
         if( this.$options.modules ) {
             for( const _module of this.$options.modules ) {
                 if( !(_module instanceof Module ) ) {
+                    _module.$parent = this
                     const $module = new Module( _module )
                     this.$modules.push( await $module.init() )
                 }
@@ -31,25 +36,77 @@ class Module {
 
     }
 
+    async beforeAction( ...args ) {
+
+        if( this.$options.beforeAction && this.$options.beforeAction.call ) {
+            return await this.$options.beforeAction.call( this, ...args )
+        }
+
+        return;
+    }
+
+    getParents() {
+
+        const $modules = []
+
+        for( let parent = this.$parent ; typeof parent !== 'undefined' ; parent = parent.$parent ) {
+            $modules.push(parent)
+        }
+
+        return $modules
+    }
+
+    execute( action ) {
+        const actionName = action.action 
+
+        const method = this.$methods[ actionName ]
+        
+        return method.call( this, action )
+    }
 
     async dispatch( action ) {
 
+        if( !('module' in action) ) {
+            console.warn(' - [Warning]: action dispatched without module name, will be applicated to all modules')
+        }
+
+        if( !('action' in action) ){
+            throw Error(' - [Error]: Tried to dispatch action without parameter action')
+        }
+
+
+        const child = _.clone(action)
+        let ctx = _.clone(action)
+        ctx.$module = this
+        ctx.$name = this.$name
+
+        child.$parent = ctx
+
         const response = []
 
-        action.context = {
-            ...action,
-            name: this.$name,
-            $module: this
-        }
+        if( ctx.module === this.$name ) {
 
-        await this.beforeAction( action )
+            const $parents = this.getParents() 
 
-        if( action.module === this.$name || !action.module ) {
-            response.push( await this.$methods[ action.action ].call( this, action.data , action.context) )
-        }
+            for( let $parent of $parents) {
+                const result = await $parent.beforeAction( ctx )
+            
+                if( typeof result !== 'undefined' ) {
+                    ctx = result
+                }
+            }
+
+            const result = await this.execute(ctx)
+
+            response.push( result )
+            
+        } else {
         
-        for( const _module of this.$modules ) {
-            response.push( ...(await _module.dispatch( action ) ) )   
+            for( const $module of this.$modules ) {
+                const results = await $module.dispatch( child )
+                response.push( ...results )   
+            }
+        
         }
 
         return response
@@ -58,17 +115,23 @@ class Module {
     getModule( name, ctx, searchInParents ) {
 
         if( ctx === undefined || ctx === null ) {
-            return
+            ctx = this
         }
     
-        if( ctx.name === name ) {
-            return ctx.$module
+        if( ctx && ctx.$name === name ) {
+            return ctx
         } 
     
-        if( ctx.$module.$modules ) {
-            for( const $module of ctx.$module.$modules ) {
+        if( ctx && ctx.$modules ) {
+            for( const $module of ctx.$modules ) {
                 if( $module.$name === name ) {
                     return $module
+                }
+                if( $module.$modules ) {
+                    const result = this.getModule( name, $module, false )
+                    if( result ) {
+                        return result
+                    }
                 }
             }
         }
@@ -77,8 +140,7 @@ class Module {
             return
         }
 
-        return this.getModule( name, ctx.context, searchInParents )
-        
+        return this.getModule( name, ctx.$parent, searchInParents )
     }
 
     async eachPlugin(fn) {
@@ -94,14 +156,6 @@ class Module {
             }
             return $plugin.prepare.call( this, ...args )
         } )
-    }
-
-    async beforeAction( ...args ) {
-        if( this.$options.beforeAction && this.$options.beforeAction.call ) {
-            return await this.$options.beforeAction.call( this, ...args )
-        }
-
-        return;
     }
 
     beforeMount( ...args ) {
@@ -129,9 +183,9 @@ class Module {
 
 Module.$plugins = []
 
-Module.use = function( fn ) {
+Module.use = function( fn, config ) {
 
-    const $plugin = fn( Module )
+    const $plugin = fn( Module, config )
     
     Module.$plugins.push( $plugin )
 
