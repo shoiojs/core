@@ -58,9 +58,7 @@ class Module {
 
     execute( action ) {
         const actionName = action.action 
-
         const method = this.$methods[ actionName ]
-        
         return method.call( this, action )
     }
 
@@ -74,7 +72,6 @@ class Module {
             throw Error(' - [Error]: Tried to dispatch action without parameter action')
         }
 
-
         const child = _.clone(action)
         let ctx = _.clone(action)
         ctx.$module = this
@@ -86,7 +83,7 @@ class Module {
 
         if( ctx.module === this.$name ) {
 
-            const $parents = this.getParents() 
+            const $parents = this.getParents().concat( [ this ] )
 
             for( let $parent of $parents) {
                 const result = await $parent.beforeAction( ctx )
